@@ -1,5 +1,7 @@
 name: Create Release Tag After Prod Deployment
 
+permissions:
+  contents: write
 on:
   repository_dispatch:
     types: [prod_release_trigger]
