@@ -96,6 +96,6 @@ jobs:
             **Previous Release:** ${{ steps.prevtag.outputs.previous_tag }}
 
           # IMPORTANT → Allows GitHub to generate the preview:
-          generateReleaseNotes: true
+          generateReleaseNotes: false
           draft: false
           prerelease: false
