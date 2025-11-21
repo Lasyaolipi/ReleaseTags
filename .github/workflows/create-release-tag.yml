@@ -2,6 +2,7 @@ name: Create Release Tag After Prod Deployment
 
 permissions:
   contents: write
+
 on:
   repository_dispatch:
     types: [prod_release_trigger]
@@ -15,7 +16,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: master
-          fetch-depth: 0
+          fetch-depth: 0   # MUST be 0 to read all tag history
 
       - name: Get Year & Month
         id: date
@@ -29,11 +30,9 @@ jobs:
           TAGS=$(git tag --list "Release-${{ steps.date.outputs.year }}.${{ steps.date.outputs.month }}.*")
 
           if [ -z "$TAGS" ]; then
-            # First tag for this month
             echo "rel=01" >> $GITHUB_OUTPUT
             echo "build=00" >> $GITHUB_OUTPUT
           else
-            # Reuse rel, bump only build number
             LAST=$(echo "$TAGS" | sort -V | tail -1)
             RR=$(echo "$LAST" | awk -F'.' '{print $3}')
             BB=$(echo "$LAST" | awk -F'.' '{print $4}')
@@ -45,8 +44,7 @@ jobs:
       - name: Get Previous Global Release Tag
         id: prevtag
         run: |
-          # Most recent existing Release-* tag (before new one)
-          PREV=$(git tag --sort=-v:refname "Release-*" | head -n 1 || true)
+          PREV=$(git tag --sort=-v:refname "Release-*" | sed -n '1p' || true)
           echo "previous_tag=$PREV" >> $GITHUB_OUTPUT
 
       - name: Build final tag
@@ -62,14 +60,24 @@ jobs:
           git tag -a "${{ steps.buildtag.outputs.tag }}" -m "Production Release"
           git push origin "${{ steps.buildtag.outputs.tag }}"
 
-      - name: Generate Changelog Between Tags
+      # ---------------------------
+      #  NEW CLEAN CHANGELOG LOGIC
+      #  Only PR merges between tags
+      # ---------------------------
+
+      - name: Generate Changelog Between Tags (Only PR merges)
         id: changelog
         run: |
           if [ -z "${{ steps.prevtag.outputs.previous_tag }}" ]; then
-            echo "No previous Release tag found. Generating full commit history on master."
-            LOG=$(git log --pretty=format:"- %s by @%an")
+            echo "No previous tag found. Showing only merged PRs."
+            LOG=$(git log --merges --pretty=format:"- %b")
           else
-            LOG=$(git log ${{ steps.prevtag.outputs.previous_tag }}..HEAD --pretty=format:"- %s by @%an")
+            LOG=$(git log ${{ steps.prevtag.outputs.previous_tag }}..HEAD --merges --pretty=format:"- %b")
+          fi
+
+          # If LOG is empty, add a friendly message
+          if [ -z "$LOG" ]; then
+            LOG="No pull requests merged in this release."
           fi
 
           echo "log<<EOF" >> $GITHUB_OUTPUT
