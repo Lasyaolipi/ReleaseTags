@@ -60,28 +60,31 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-
+  
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-
+  
       - name: Setup Pages
         uses: actions/configure-pages@v3
-
+        with:
+          enablement: true   # ✅ FIX
+  
       - name: Download tested build
         uses: actions/download-artifact@v4
         with:
           name: website-build
           path: .
-
+  
       - name: Upload artifact to Pages
         uses: actions/upload-pages-artifact@v3
         with:
           path: .
-
+  
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
   build-and-push:
     runs-on: ubuntu-latest
 
