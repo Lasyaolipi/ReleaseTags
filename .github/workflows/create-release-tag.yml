@@ -1,0 +1,92 @@
+name: Create Release Tag After Prod Deployment
+
+on:
+  repository_dispatch:
+    types: [prod_release_trigger]
+
+jobs:
+  create-release-tag:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout master branch
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Get Year & Month
+        id: date
+        run: |
+          echo "year=$(date +'%y')" >> $GITHUB_OUTPUT
+          echo "month=$(date +'%m')" >> $GITHUB_OUTPUT
+
+      - name: Find existing tags for this month
+        id: releasepart
+        run: |
+          TAGS=$(git tag --list "Release-${{ steps.date.outputs.year }}.${{ steps.date.outputs.month }}.*")
+
+          if [ -z "$TAGS" ]; then
+            # First tag for this month
+            echo "rel=01" >> $GITHUB_OUTPUT
+            echo "build=00" >> $GITHUB_OUTPUT
+          else
+            # Reuse rel, bump only build number
+            LAST=$(echo "$TAGS" | sort -V | tail -1)
+            RR=$(echo "$LAST" | awk -F'.' '{print $3}')
+            BB=$(echo "$LAST" | awk -F'.' '{print $4}')
+            NEXT_BB=$(printf "%02d" $((10#$BB + 1)))
+            echo "rel=$RR" >> $GITHUB_OUTPUT
+            echo "build=$NEXT_BB" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get Previous Global Release Tag
+        id: prevtag
+        run: |
+          # Most recent existing Release-* tag (before new one)
+          PREV=$(git tag --sort=-v:refname "Release-*" | head -n 1 || true)
+          echo "previous_tag=$PREV" >> $GITHUB_OUTPUT
+
+      - name: Build final tag
+        id: buildtag
+        run: |
+          TAG="Release-${{ steps.date.outputs.year }}.${{ steps.date.outputs.month }}.${{ steps.releasepart.outputs.rel }}.${{ steps.releasepart.outputs.build }}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Create git tag
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "github-actions@github.com"
+          git tag -a "${{ steps.buildtag.outputs.tag }}" -m "Production Release"
+          git push origin "${{ steps.buildtag.outputs.tag }}"
+
+      - name: Generate Changelog Between Tags
+        id: changelog
+        run: |
+          if [ -z "${{ steps.prevtag.outputs.previous_tag }}" ]; then
+            echo "No previous Release tag found. Generating full commit history on master."
+            LOG=$(git log --pretty=format:"- %s by @%an")
+          else
+            LOG=$(git log ${{ steps.prevtag.outputs.previous_tag }}..HEAD --pretty=format:"- %s by @%an")
+          fi
+
+          echo "log<<EOF" >> $GITHUB_OUTPUT
+          echo "$LOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release with Changelog
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ steps.buildtag.outputs.tag }}
+          name: "${{ steps.buildtag.outputs.tag }}"
+          body: |
+            ## What's Changed
+            ${{ steps.changelog.outputs.log }}
+
+            ---
+            **Previous Release:** ${{ steps.prevtag.outputs.previous_tag }}
+          draft: false
+          prerelease: false
+
+      - name: Output Tag
+        run: echo "Created Tag → ${{ steps.buildtag.outputs.tag }}"
